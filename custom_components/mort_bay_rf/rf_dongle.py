@@ -60,7 +60,10 @@ class RFDongle:
             await self._hass.async_add_executor_job(self._connect)
 
     def _connect(self) -> None:
-        """Open the device synchronously."""
+        """Open and claim the USB dongle synchronously."""
+        if self._device is not None:
+            return
+
         device = usb.core.find(
             idVendor=self._address.vendor_id,
             idProduct=self._address.product_id,
@@ -73,45 +76,87 @@ class RFDongle:
                 f"{self._address.product_id:04X} not found"
             )
 
+        interface_number = 0
+        claimed = False
+        detached_kernel_driver = False
+
         try:
-            device.set_configuration()
+            # The device is already configured by Linux.
+            # Do not call device.set_configuration() here.
             configuration = device.get_active_configuration()
-            interface = configuration[(0, 0)]
-            interface_number = interface.bInterfaceNumber
 
-            if device.is_kernel_driver_active(interface_number):
-                device.detach_kernel_driver(interface_number)
+            interface = usb.util.find_descriptor(
+                configuration,
+                bInterfaceNumber=interface_number,
+                bAlternateSetting=0,
+            )
 
-            usb.util.claim_interface(device, interface_number)
+            if interface is None:
+                raise RFDongleCommunicationError(
+                    "USB interface 0 was not found"
+                )
 
-            endpoint_out = next(
-                (
-                    endpoint
-                    for endpoint in interface
-                    if usb.util.endpoint_direction(
-                        endpoint.bEndpointAddress
-                    )
-                    == usb.util.ENDPOINT_OUT
+            try:
+                if device.is_kernel_driver_active(interface_number):
+                    device.detach_kernel_driver(interface_number)
+                    detached_kernel_driver = True
+            except NotImplementedError:
+                _LOGGER.debug(
+                    "Kernel-driver detection is unsupported"
+                )
+            except usb.core.USBError as err:
+                raise RFDongleCommunicationError(
+                    f"Could not detach kernel driver from "
+                    f"interface {interface_number}: {err}"
+                ) from err
+
+            try:
+                usb.util.claim_interface(
+                    device,
+                    interface_number,
+                )
+                claimed = True
+            except usb.core.USBError as err:
+                raise RFDongleCommunicationError(
+                    f"Could not claim USB interface "
+                    f"{interface_number}: {err}"
+                ) from err
+
+            endpoint_out = usb.util.find_descriptor(
+                interface,
+                custom_match=lambda endpoint: (
+                    endpoint.bEndpointAddress == 0x02
                 ),
-                None,
             )
 
             if endpoint_out is None:
-                usb.util.release_interface(device, interface_number)
                 raise RFDongleCommunicationError(
-                    "No USB OUT endpoint was found"
+                    "USB interrupt OUT endpoint 0x02 was not found"
                 )
 
             self._device = device
             self._endpoint_out = endpoint_out
             self._claimed_interface = interface_number
+            self._detached_kernel_driver = detached_kernel_driver
 
-        except RFDongleError:
+        except Exception:
+            if claimed:
+                try:
+                    usb.util.release_interface(
+                        device,
+                        interface_number,
+                    )
+                except usb.core.USBError:
+                    pass
+
+            if detached_kernel_driver:
+                try:
+                    device.attach_kernel_driver(interface_number)
+                except (NotImplementedError, usb.core.USBError):
+                    pass
+
+            usb.util.dispose_resources(device)
             raise
-        except usb.core.USBError as err:
-            raise RFDongleCommunicationError(
-                f"Could not initialise RF dongle: {err}"
-            ) from err
 
     async def async_disconnect(self) -> None:
         """Release the USB interface."""
