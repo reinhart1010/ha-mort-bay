@@ -1,13 +1,10 @@
-"""Switch entities for Mort Bay RF power plugs."""
+"""Switch platform for Mort Bay RF."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from homeassistant.components.switch import (
-    SwitchEntity,
-    SwitchEntityDescription,
-)
+from homeassistant.components.switch import SwitchEntity
 from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -16,7 +13,11 @@ from homeassistant.helpers.entity_platform import (
 )
 
 from . import MortBayConfigEntry
-from .const import CONF_DEVICE_ID, CONF_PLUGS, DOMAIN, SUBENTRY_TYPE_SOCKET
+from .const import (
+    CONF_DEVICE_ID,
+    DOMAIN,
+    SUBENTRY_TYPE_SOCKET,
+)
 from .rf_dongle import RFDongle, RFDongleError
 
 
@@ -25,33 +26,29 @@ async def async_setup_entry(
     entry: MortBayConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up RF socket entities."""
+    """Set up Smart Wireless Socket entities."""
     dongle = entry.runtime_data.dongle
-
-    entities = []
 
     for subentry in entry.subentries.values():
         if subentry.subentry_type != SUBENTRY_TYPE_SOCKET:
             continue
 
-        entities.append(
-            MortBayRFSwitch(
-                dongle=dongle,
-                entry_id=entry.entry_id,
-                subentry_id=subentry.subentry_id,
-                name=subentry.data[CONF_NAME],
-                device_id_hex=subentry.data[CONF_DEVICE_ID],
-            )
+        entity = MortBayRFSwitch(
+            dongle=entry.runtime_data.dongle,
+            entry_id=entry.entry_id,
+            controller_device_id=entry.runtime_data.controller_device_id,
+            name=str(subentry.data[CONF_NAME]),
+            device_id_hex=str(subentry.data[CONF_DEVICE_ID]),
         )
 
-    async_add_entities(
-        entities,
-        config_subentry_id=subentry.subentry_id,
-    )
+        async_add_entities(
+            [entity],
+            config_subentry_id=subentry.subentry_id,
+        )
 
 
 class MortBayRFSwitch(SwitchEntity):
-    """A one-way RF controlled power plug."""
+    """A Mort Bay Smart Wireless Socket."""
 
     _attr_has_entity_name = True
     _attr_should_poll = False
@@ -62,45 +59,47 @@ class MortBayRFSwitch(SwitchEntity):
         *,
         dongle: RFDongle,
         entry_id: str,
-        subentry_id: str,
+        controller_device_id: str,
         name: str,
         device_id_hex: str,
     ) -> None:
+        """Initialize the socket."""
         self._dongle = dongle
+        self._entry_id = entry_id
         self._device_id_hex = device_id_hex.upper()
         self._device_id = bytes.fromhex(self._device_id_hex)
 
-        self._attr_name = name
+        # Stable entity identity.
         self._attr_unique_id = (
-            f"{entry_id}_{self._device_id_hex.lower()}"
+            f"{entry_id}_socket_{self._device_id_hex.lower()}"
         )
 
-        self._attr_icon = "mdi:power-socket-au"
-        self._attr_is_on = None
+        # Because has_entity_name=True, None makes the entity use the
+        # device name without producing:
+        # "Socket Name Socket Name".
+        self._attr_name = None
+
+        self._attr_is_on: bool | None = None
         self._attr_available = True
 
         self._attr_device_info = DeviceInfo(
             identifiers={
                 (
                     DOMAIN,
-                    f"{entry_id}:{self._device_id_hex}",
+                    f"socket:{entry_id}:{self._device_id_hex}",
                 )
             },
             name=name,
-            manufacturer="Mort Bay",
+            manufacturer="Mort Bay Traders",
             model="Smart Wireless Socket",
+
+            # Use this on current versions where supported.
+            via_device=(
+                DOMAIN,
+                f"controller:{entry_id}",
+            ),
+            via_device_id=controller_device_id,
         )
-
-        self._attr_config_entry_id = entry_id
-        self._attr_config_subentry_id = subentry_id
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        """Return diagnostic attributes."""
-        return {
-            "rf_device_id": self._device_id_hex,
-            "state_source": "last_command",
-        }
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the socket on."""
