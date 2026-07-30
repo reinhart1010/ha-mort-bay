@@ -9,6 +9,9 @@ PLATFORMS: Final = ["switch"]
 CONF_PLUGS: Final = "plugs"
 CONF_DEVICE_ID: Final = "device_id"
 
+SUBENTRY_TYPE_SOCKET: Final = "socket"
+DEFAULT_SOCKET_NAME: Final = "Smart Wireless Socket"
+
 DEFAULT_VENDOR_ID: Final = 0x0C45
 DEFAULT_PRODUCT_ID: Final = 0x7463
 
@@ -19,3 +22,14 @@ COMMAND_OFF: Final = 0x08
 # Some variants reportedly accept:
 # ON:  0x88 or 0xB8
 # OFF: 0x08 or 0x38
+
+"""
+This packet suffix is required to send correct RF dongle transmission parameters.
+"""
+PACKET_SUFFIX = bytes([
+    0x20,
+    0x60,
+    0x0C,
+    0x18,
+    0x00,
+])

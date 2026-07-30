@@ -16,7 +16,7 @@ from homeassistant.helpers.entity_platform import (
 )
 
 from . import MortBayConfigEntry
-from .const import CONF_DEVICE_ID, CONF_PLUGS, DOMAIN
+from .const import CONF_DEVICE_ID, CONF_PLUGS, DOMAIN, SUBENTRY_TYPE_SOCKET
 from .rf_dongle import RFDongle, RFDongleError
 
 
@@ -25,18 +25,24 @@ async def async_setup_entry(
     entry: MortBayConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up RF power-plug switches."""
+    """Set up RF socket entities."""
     dongle = entry.runtime_data.dongle
 
-    entities = [
-        MortBayRFSwitch(
-            dongle=dongle,
-            entry_id=entry.entry_id,
-            name=plug[CONF_NAME],
-            device_id_hex=plug[CONF_DEVICE_ID],
+    entities = []
+
+    for subentry in entry.subentries.values():
+        if subentry.subentry_type != SUBENTRY_TYPE_SOCKET:
+            continue
+
+        entities.append(
+            MortBayRFSwitch(
+                dongle=dongle,
+                entry_id=entry.entry_id,
+                subentry_id=subentry.subentry_id,
+                name=subentry.data[CONF_NAME],
+                device_id_hex=subentry.data[CONF_DEVICE_ID],
+            )
         )
-        for plug in entry.data.get(CONF_PLUGS, [])
-    ]
 
     async_add_entities(entities)
 
@@ -53,6 +59,7 @@ class MortBayRFSwitch(SwitchEntity):
         *,
         dongle: RFDongle,
         entry_id: str,
+        subentry_id: str,
         name: str,
         device_id_hex: str,
     ) -> None:
@@ -65,19 +72,24 @@ class MortBayRFSwitch(SwitchEntity):
             f"{entry_id}_{self._device_id_hex.lower()}"
         )
 
-        # No state feedback exists, so this is the last commanded state.
-        self._attr_is_on: bool | None = None
+        self._attr_icon = "mdi:power-socket-au"
+        self._attr_is_on = None
         self._attr_available = True
 
         self._attr_device_info = DeviceInfo(
             identifiers={
-                (DOMAIN, f"{entry_id}:{self._device_id_hex}")
+                (
+                    DOMAIN,
+                    f"{entry_id}:{self._device_id_hex}",
+                )
             },
             name=name,
             manufacturer="Mort Bay",
-            model="RF Power Plug",
-            via_device=(DOMAIN, entry_id),
+            model="Smart Wireless Socket",
         )
+
+        self._attr_config_entry_id = entry_id
+        self._attr_config_subentry_id = subentry_id
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:

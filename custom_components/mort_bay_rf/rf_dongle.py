@@ -12,22 +12,11 @@ import usb.util
 
 from homeassistant.core import HomeAssistant
 
-from .const import COMMAND_OFF, COMMAND_ON
+from .const import COMMAND_OFF, COMMAND_ON, PACKET_SUFFIX
 
 _LOGGER = logging.getLogger(__name__)
 
 USB_TIMEOUT_MS: Final = 1_000
-
-"""
-This packet suffix is required to send correct RF dongle transmission parameters.
-"""
-PACKET_SUFFIX = bytes([
-    0x20,
-    0x60,
-    0x0C,
-    0x18,
-    0x00,
-])
 
 class RFDongleError(Exception):
     """Base RF dongle error."""
