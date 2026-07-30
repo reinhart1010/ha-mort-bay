@@ -1,0 +1,15 @@
+{
+  "domain": "mort_bay_rf",
+  "name": "Mort Bay Smart USB Wireless Controller",
+  "documentation": "https://github.com/reinhart1010/ha-mortbay",
+  "codeowners": [
+    "reinhart1010"
+  ],
+  "requirements": [
+    "pyusb==1.3.1"
+  ],
+  "integration_type": "hub",
+  "iot_class": "local_push",
+  "config_flow": true,
+  "version": "1.0.0"
+}

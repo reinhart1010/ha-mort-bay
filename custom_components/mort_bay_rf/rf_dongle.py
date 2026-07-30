@@ -1,0 +1,204 @@
+"""USB transport for Mort Bay RF power plugs."""
+
+from __future__ import annotations
+
+import asyncio
+from dataclasses import dataclass
+import logging
+from typing import Final
+
+import usb.core
+import usb.util
+
+from homeassistant.core import HomeAssistant
+
+from .const import COMMAND_OFF, COMMAND_ON
+
+_LOGGER = logging.getLogger(__name__)
+
+USB_TIMEOUT_MS: Final = 1_000
+
+
+class RFDongleError(Exception):
+    """Base RF dongle error."""
+
+
+class RFDongleNotFoundError(RFDongleError):
+    """Raised when the USB dongle cannot be found."""
+
+
+class RFDongleCommunicationError(RFDongleError):
+    """Raised when USB communication fails."""
+
+
+@dataclass(slots=True, frozen=True)
+class DongleAddress:
+    """USB identity of the RF dongle."""
+
+    vendor_id: int
+    product_id: int
+
+
+class RFDongle:
+    """Control an RF USB dongle."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        address: DongleAddress,
+    ) -> None:
+        self._hass = hass
+        self._address = address
+        self._device: usb.core.Device | None = None
+        self._endpoint_out: usb.core.Endpoint | None = None
+        self._claimed_interface: int | None = None
+        self._lock = asyncio.Lock()
+
+    async def async_connect(self) -> None:
+        """Open and configure the USB device."""
+        async with self._lock:
+            await self._hass.async_add_executor_job(self._connect)
+
+    def _connect(self) -> None:
+        """Open the device synchronously."""
+        device = usb.core.find(
+            idVendor=self._address.vendor_id,
+            idProduct=self._address.product_id,
+        )
+
+        if device is None:
+            raise RFDongleNotFoundError(
+                f"USB dongle "
+                f"{self._address.vendor_id:04X}:"
+                f"{self._address.product_id:04X} not found"
+            )
+
+        try:
+            device.set_configuration()
+            configuration = device.get_active_configuration()
+            interface = configuration[(0, 0)]
+            interface_number = interface.bInterfaceNumber
+
+            if device.is_kernel_driver_active(interface_number):
+                device.detach_kernel_driver(interface_number)
+
+            usb.util.claim_interface(device, interface_number)
+
+            endpoint_out = next(
+                (
+                    endpoint
+                    for endpoint in interface
+                    if usb.util.endpoint_direction(
+                        endpoint.bEndpointAddress
+                    )
+                    == usb.util.ENDPOINT_OUT
+                ),
+                None,
+            )
+
+            if endpoint_out is None:
+                usb.util.release_interface(device, interface_number)
+                raise RFDongleCommunicationError(
+                    "No USB OUT endpoint was found"
+                )
+
+            self._device = device
+            self._endpoint_out = endpoint_out
+            self._claimed_interface = interface_number
+
+        except RFDongleError:
+            raise
+        except usb.core.USBError as err:
+            raise RFDongleCommunicationError(
+                f"Could not initialise RF dongle: {err}"
+            ) from err
+
+    async def async_disconnect(self) -> None:
+        """Release the USB interface."""
+        async with self._lock:
+            await self._hass.async_add_executor_job(self._disconnect)
+
+    def _disconnect(self) -> None:
+        """Release the USB interface synchronously."""
+        if self._device is None:
+            return
+
+        try:
+            if self._claimed_interface is not None:
+                usb.util.release_interface(
+                    self._device,
+                    self._claimed_interface,
+                )
+        except usb.core.USBError:
+            _LOGGER.debug(
+                "Error releasing RF dongle interface",
+                exc_info=True,
+            )
+        finally:
+            usb.util.dispose_resources(self._device)
+            self._device = None
+            self._endpoint_out = None
+            self._claimed_interface = None
+
+    async def async_turn_on(self, device_id: bytes) -> None:
+        """Transmit an ON command."""
+        await self._async_send(device_id, COMMAND_ON)
+
+    async def async_turn_off(self, device_id: bytes) -> None:
+        """Transmit an OFF command."""
+        await self._async_send(device_id, COMMAND_OFF)
+
+    async def _async_send(
+        self,
+        device_id: bytes,
+        command: int,
+    ) -> None:
+        """Serialize and transmit one RF command."""
+        if len(device_id) != 2:
+            raise ValueError("RF device ID must contain exactly two bytes")
+
+        async with self._lock:
+            await self._hass.async_add_executor_job(
+                self._send,
+                device_id,
+                command,
+            )
+
+    def _send(self, device_id: bytes, command: int) -> None:
+        """Write one packet synchronously."""
+        if self._endpoint_out is None:
+            raise RFDongleCommunicationError(
+                "RF dongle is not connected"
+            )
+
+        # Replace this packet layout if a USB capture shows additional
+        # framing, padding, checksum or report-ID bytes.
+        packet = bytes(
+            (
+                device_id[0],
+                device_id[1],
+                command,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+            )
+        )
+
+        try:
+            written = self._endpoint_out.write(
+                packet,
+                timeout=USB_TIMEOUT_MS,
+            )
+        except usb.core.USBError as err:
+            raise RFDongleCommunicationError(
+                f"Could not send RF command: {err}"
+            ) from err
+
+        if written != len(packet):
+            raise RFDongleCommunicationError(
+                f"USB short write: wrote {written} of "
+                f"{len(packet)} bytes"
+            )
+        

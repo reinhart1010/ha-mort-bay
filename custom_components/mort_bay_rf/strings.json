@@ -1,0 +1,29 @@
+{
+  "title": "Mort Bay RF Power Plugs",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up the RF dongle",
+        "description": "Configure the first RF power plug.",
+        "data": {
+          "name": "Plug name",
+          "id_mode": "Device ID"
+        }
+      },
+      "manual_id": {
+        "title": "Enter the RF device ID",
+        "description": "Enter exactly two bytes as four hexadecimal digits, for example {example}.",
+        "data": {
+          "device_id": "Device ID"
+        }
+      }
+    },
+    "error": {
+      "invalid_device_id": "Enter exactly four hexadecimal digits."
+    },
+    "abort": {
+      "single_instance_allowed": "Only one RF dongle can currently be configured.",
+      "already_configured": "This RF dongle is already configured."
+    }
+  }
+}
