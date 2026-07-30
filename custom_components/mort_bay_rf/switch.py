@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
 from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import (
     AddConfigEntryEntitiesCallback,
@@ -22,6 +24,41 @@ from .const import (
 from .rf_dongle import RFDongle, RFDongleError
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def build_socket_device_info(
+    *,
+    entry_id: str,
+    controller_device_id: str,
+    name: str,
+    device_id_hex: str,
+) -> DeviceInfo:
+    """Build compatible device information across HA versions."""
+    info: DeviceInfo = {
+        "identifiers": {
+            (
+                DOMAIN,
+                f"socket:{entry_id}:{device_id_hex}",
+            )
+        },
+        "name": name,
+        "manufacturer": "Mort Bay",
+        "model": "Smart Wireless Socket",
+    }
+
+    parameters = inspect.signature(
+        dr.DeviceRegistry.async_get_or_create
+    ).parameters
+
+    if "via_device_id" in parameters:
+        info["via_device_id"] = controller_device_id
+    else:
+        info["via_device"] = (
+            DOMAIN,
+            f"controller:{entry_id}",
+        )
+
+    return info
 
 
 async def async_setup_entry(
@@ -111,17 +148,11 @@ class MortBayRFSwitch(SwitchEntity):
         self._attr_is_on: bool | None = None
         self._attr_available = True
 
-        self._attr_device_info = DeviceInfo(
-            identifiers={
-                (
-                    DOMAIN,
-                    f"socket:{entry_id}:{self._device_id_hex}",
-                )
-            },
+        self._attr_device_info = build_socket_device_info(
+            entry_id=entry_id,
+            controller_device_id=controller_device_id,
             name=name,
-            manufacturer="Mort Bay",
-            model="Smart Wireless Socket",
-            via_device_id=controller_device_id,
+            device_id_hex=self._device_id_hex,
         )
 
     async def async_turn_on(
