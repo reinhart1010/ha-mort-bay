@@ -44,7 +44,10 @@ async def async_setup_entry(
             )
         )
 
-    async_add_entities(entities)
+    async_add_entities(
+        entities,
+        config_subentry_id=subentry.subentry_id,
+    )
 
 
 class MortBayRFSwitch(SwitchEntity):
