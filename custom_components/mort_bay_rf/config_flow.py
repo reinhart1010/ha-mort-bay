@@ -130,6 +130,16 @@ class SocketSubentryFlowHandler(ConfigSubentryFlow):
         self._socket_name = DEFAULT_SOCKET_NAME
         self._id_mode = ID_MODE_RANDOM
 
+    @callback
+    def _schedule_parent_reload(self) -> None:
+        """Reload the controller after the subentry has been stored."""
+        entry = self._get_entry()
+
+        self.hass.async_create_task(
+            self.hass.config_entries.async_reload(entry.entry_id),
+            "Reload Mort Bay RF after socket addition",
+        )
+
     def _existing_device_ids(self) -> set[str]:
         """Return RF IDs already used by this controller."""
         entry = self._get_entry()
@@ -158,6 +168,8 @@ class SocketSubentryFlowHandler(ConfigSubentryFlow):
             device_id = generate_device_id(
                 self._existing_device_ids()
             )
+            
+            self._schedule_parent_reload()
 
             return self.async_create_entry(
                 title=self._socket_name,
@@ -220,6 +232,8 @@ class SocketSubentryFlowHandler(ConfigSubentryFlow):
                         "device_id_already_exists"
                     )
                 else:
+                    self._schedule_parent_reload()
+                    
                     return self.async_create_entry(
                         title=self._socket_name,
                         data={
