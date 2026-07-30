@@ -1,7 +1,8 @@
-"""Switch platform for Mort Bay RF."""
+"""Switch entities for Mort Bay RF sockets."""
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
@@ -20,6 +21,8 @@ from .const import (
 )
 from .rf_dongle import RFDongle, RFDongleError
 
+_LOGGER = logging.getLogger(__name__)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -27,23 +30,53 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Smart Wireless Socket entities."""
-    dongle = entry.runtime_data.dongle
+
+    _LOGGER.warning(
+        "Loading Mort Bay switch platform with %s subentries",
+        len(entry.subentries),
+    )
 
     for subentry in entry.subentries.values():
+        _LOGGER.warning(
+            "Found subentry id=%s type=%s data=%s",
+            subentry.subentry_id,
+            subentry.subentry_type,
+            dict(subentry.data),
+        )
+
         if subentry.subentry_type != SUBENTRY_TYPE_SOCKET:
+            _LOGGER.warning(
+                "Skipping subentry because type %r != %r",
+                subentry.subentry_type,
+                SUBENTRY_TYPE_SOCKET,
+            )
             continue
 
         entity = MortBayRFSwitch(
             dongle=entry.runtime_data.dongle,
             entry_id=entry.entry_id,
-            controller_device_id=entry.runtime_data.controller_device_id,
-            name=str(subentry.data[CONF_NAME]),
-            device_id_hex=str(subentry.data[CONF_DEVICE_ID]),
+            controller_device_id=(
+                entry.runtime_data.controller_device_id
+            ),
+            name=str(
+                subentry.data.get(
+                    CONF_NAME,
+                    "Smart Wireless Socket",
+                )
+            ),
+            device_id_hex=str(
+                subentry.data[CONF_DEVICE_ID]
+            ),
         )
 
         async_add_entities(
             [entity],
             config_subentry_id=subentry.subentry_id,
+        )
+
+        _LOGGER.warning(
+            "Scheduled switch entity for subentry %s",
+            subentry.subentry_id,
         )
 
 
@@ -63,20 +96,16 @@ class MortBayRFSwitch(SwitchEntity):
         name: str,
         device_id_hex: str,
     ) -> None:
-        """Initialize the socket."""
+        """Initialize the RF socket."""
         self._dongle = dongle
-        self._entry_id = entry_id
         self._device_id_hex = device_id_hex.upper()
         self._device_id = bytes.fromhex(self._device_id_hex)
 
-        # Stable entity identity.
         self._attr_unique_id = (
             f"{entry_id}_socket_{self._device_id_hex.lower()}"
         )
 
-        # Because has_entity_name=True, None makes the entity use the
-        # device name without producing:
-        # "Socket Name Socket Name".
+        # Entity name becomes the device name only.
         self._attr_name = None
 
         self._attr_is_on: bool | None = None
@@ -90,21 +119,20 @@ class MortBayRFSwitch(SwitchEntity):
                 )
             },
             name=name,
-            manufacturer="Mort Bay Traders",
+            manufacturer="Mort Bay",
             model="Smart Wireless Socket",
-
-            # Use this on current versions where supported.
-            via_device=(
-                DOMAIN,
-                f"controller:{entry_id}",
-            ),
             via_device_id=controller_device_id,
         )
 
-    async def async_turn_on(self, **kwargs: Any) -> None:
+    async def async_turn_on(
+        self,
+        **kwargs: Any,
+    ) -> None:
         """Turn the socket on."""
         try:
-            await self._dongle.async_turn_on(self._device_id)
+            await self._dongle.async_turn_on(
+                self._device_id
+            )
         except RFDongleError:
             self._attr_available = False
             self.async_write_ha_state()
@@ -114,10 +142,15 @@ class MortBayRFSwitch(SwitchEntity):
         self._attr_is_on = True
         self.async_write_ha_state()
 
-    async def async_turn_off(self, **kwargs: Any) -> None:
+    async def async_turn_off(
+        self,
+        **kwargs: Any,
+    ) -> None:
         """Turn the socket off."""
         try:
-            await self._dongle.async_turn_off(self._device_id)
+            await self._dongle.async_turn_off(
+                self._device_id
+            )
         except RFDongleError:
             self._attr_available = False
             self.async_write_ha_state()
