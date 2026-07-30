@@ -209,41 +209,59 @@ class RFDongle:
                 command,
             )
 
+    """
+    This packet suffix is required to send correct RF dongle transmission parameters.
+    """
+    PACKET_SUFFIX = bytes([
+        0x20,
+        0x60,
+        0x0C,
+        0x18,
+        0x00,
+    ])
+
+
     def _send(self, device_id: bytes, command: int) -> None:
-        """Write one packet synchronously."""
-        if self._endpoint_out is None:
+        """Send one RF command through interrupt OUT endpoint 0x02."""
+        if len(device_id) != 2:
+            raise ValueError(
+                "RF device ID must contain exactly two bytes"
+            )
+
+        if not 0 <= command <= 0xFF:
+            raise ValueError("RF command must be one byte")
+
+        endpoint_out = self._endpoint_out
+
+        if self._device is None or endpoint_out is None:
             raise RFDongleCommunicationError(
                 "RF dongle is not connected"
             )
 
-        # Replace this packet layout if a USB capture shows additional
-        # framing, padding, checksum or report-ID bytes.
-        packet = bytes(
-            (
-                device_id[0],
-                device_id[1],
-                command,
-                0x00,
-                0x00,
-                0x00,
-                0x00,
-                0x00,
-            )
-        )
+        payload = device_id + bytes([command]) + PACKET_SUFFIX
 
         try:
-            written = self._endpoint_out.write(
-                packet,
-                timeout=USB_TIMEOUT_MS,
+            written = endpoint_out.write(
+                payload,
+                timeout=3000,
             )
+        except usb.core.USBTimeoutError as err:
+            raise RFDongleCommunicationError(
+                "RF dongle timed out sending packet "
+                f"{payload.hex(' ').upper()}"
+            ) from err
         except usb.core.USBError as err:
             raise RFDongleCommunicationError(
                 f"Could not send RF command: {err}"
             ) from err
 
-        if written != len(packet):
+        if written != len(payload):
             raise RFDongleCommunicationError(
                 f"USB short write: wrote {written} of "
-                f"{len(packet)} bytes"
+                f"{len(payload)} bytes"
             )
-        
+
+        _LOGGER.debug(
+            "Sent RF packet: %s",
+            payload.hex(" ").upper(),
+        )
