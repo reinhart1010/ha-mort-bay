@@ -46,6 +46,7 @@ class MortBayRFSwitch(SwitchEntity):
 
     _attr_has_entity_name = True
     _attr_should_poll = False
+    _attr_icon = "mdi:power-socket-au"
 
     def __init__(
         self,

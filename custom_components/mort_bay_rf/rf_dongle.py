@@ -18,6 +18,16 @@ _LOGGER = logging.getLogger(__name__)
 
 USB_TIMEOUT_MS: Final = 1_000
 
+"""
+This packet suffix is required to send correct RF dongle transmission parameters.
+"""
+PACKET_SUFFIX = bytes([
+    0x20,
+    0x60,
+    0x0C,
+    0x18,
+    0x00,
+])
 
 class RFDongleError(Exception):
     """Base RF dongle error."""
@@ -208,18 +218,6 @@ class RFDongle:
                 device_id,
                 command,
             )
-
-    """
-    This packet suffix is required to send correct RF dongle transmission parameters.
-    """
-    PACKET_SUFFIX = bytes([
-        0x20,
-        0x60,
-        0x0C,
-        0x18,
-        0x00,
-    ])
-
 
     def _send(self, device_id: bytes, command: int) -> None:
         """Send one RF command through interrupt OUT endpoint 0x02."""
