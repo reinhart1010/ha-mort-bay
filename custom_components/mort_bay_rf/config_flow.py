@@ -6,7 +6,11 @@ from typing import Any
 
 import voluptuous as vol
 
+from homeassistant.core import callback
 from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
     ConfigSubentryFlow,
     SubentryFlowResult,
 )
@@ -25,6 +29,8 @@ from .const import (
     DEFAULT_SOCKET_NAME,
     DEFAULT_PRODUCT_ID,
     DEFAULT_VENDOR_ID,
+    DOMAIN,
+    SUBENTRY_TYPE_SOCKET,
 )
 
 CONF_ID_MODE = "id_mode"
@@ -69,7 +75,7 @@ def generate_device_id(existing_ids: set[str]) -> str:
 
 
 class MortBayRFConfigFlow(
-    config_entries.ConfigFlow,
+    ConfigFlow,
     domain=DOMAIN,
 ):
     """Configure the Mort Bay USB controller."""
